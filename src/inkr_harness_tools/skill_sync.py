@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 
 SKILL_FILE_NAME = "SKILL.md"
@@ -17,6 +19,7 @@ class SyncConfig:
     agent_root: Path
     destination_root: Path
     recursive: bool
+    skill_pattern: str
     remove_stale: bool
     dry_run: bool
 
@@ -35,14 +38,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "This exposes local-only private skills to agent CLIs without copying contents."
         )
     )
-    parser.add_argument("source", type=Path, help="Source directory containing skills or nested skill folders.")
-    parser.add_argument("agent_root", type=Path, help="Agent root directory, for example .agents.")
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="Source directory containing skills or nested skill folders.",
+    )
+    parser.add_argument(
+        "agent_root", type=Path, help="Agent root directory, for example .agents."
+    )
+    parser.add_argument(
+        "-s",
+        "--skill",
+        default="*",
+        metavar="<skills>",
+        help=(
+            "Regex pattern for skill directory names to link. "
+            'Use "*" (default) to match all discovered skills.'
+        ),
+    )
     parser.add_argument(
         "--recursive",
         action="store_true",
         help="Find SKILL.md files recursively under SOURCE instead of only direct child directories.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print planned changes without changing files.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned changes without changing files.",
+    )
     parser.add_argument(
         "--no-remove-stale",
         action="store_true",
@@ -51,7 +74,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -115,21 +138,33 @@ def discover_direct_skills(source_root: Path) -> list[SkillLink]:
         if not skill_file.is_file():
             warn(f"skip non-skill directory: {child}")
             continue
-        skills.append(SkillLink(name=child.name, source_dir=child.resolve(strict=True), skill_file=skill_file))
+        skills.append(
+            SkillLink(
+                name=child.name,
+                source_dir=child.resolve(strict=True),
+                skill_file=skill_file,
+            )
+        )
     return skills
 
 
 def discover_recursive_skills(source_root: Path) -> list[SkillLink]:
     skills: list[SkillLink] = []
     seen_dirs: set[Path] = set()
-    for skill_file in sorted(source_root.rglob(SKILL_FILE_NAME), key=lambda item: str(item).lower()):
+    for skill_file in sorted(
+        source_root.rglob(SKILL_FILE_NAME), key=lambda item: str(item).lower()
+    ):
         if not skill_file.is_file():
             continue
         source_dir = skill_file.parent.resolve(strict=True)
         if source_dir in seen_dirs:
             continue
         seen_dirs.add(source_dir)
-        skills.append(SkillLink(name=source_dir.name, source_dir=source_dir, skill_file=skill_file))
+        skills.append(
+            SkillLink(
+                name=source_dir.name, source_dir=source_dir, skill_file=skill_file
+            )
+        )
     return skills
 
 
@@ -138,7 +173,9 @@ def validate_unique_names(skills: list[SkillLink]) -> None:
     for skill in skills:
         by_name.setdefault(skill.name, []).append(skill)
 
-    duplicates = {name: matches for name, matches in by_name.items() if len(matches) > 1}
+    duplicates = {
+        name: matches for name, matches in by_name.items() if len(matches) > 1
+    }
     if not duplicates:
         return
 
@@ -148,6 +185,15 @@ def validate_unique_names(skills: list[SkillLink]) -> None:
         for match in matches:
             lines.append(f"    - {match.skill_file}")
     fail("\n".join(lines))
+
+
+def compile_skill_pattern(pattern: str) -> re.Pattern[str]:
+    # Preserve requested default semantics: "*" means all skills.
+    regex_pattern = ".*" if pattern == "*" else pattern
+    try:
+        return re.compile(regex_pattern)
+    except re.error as exc:
+        fail(f"invalid --skill regex {pattern!r}: {exc}")
 
 
 def remove_link(path: Path, *, dry_run: bool) -> None:
@@ -181,7 +227,9 @@ def sync_links(config: SyncConfig, skills: list[SkillLink]) -> None:
         if destination.exists() or destination.is_symlink():
             if same_link_target(destination, skill.source_dir):
                 continue
-            if destination.is_symlink() and points_inside_source(destination, config.source_root):
+            if destination.is_symlink() and points_inside_source(
+                destination, config.source_root
+            ):
                 remove_link(destination, dry_run=config.dry_run)
             else:
                 warn(f"skip existing non-owned destination: {destination}")
@@ -192,10 +240,14 @@ def sync_links(config: SyncConfig, skills: list[SkillLink]) -> None:
     if not config.remove_stale or not config.destination_root.exists():
         return
 
-    for destination in sorted(config.destination_root.iterdir(), key=lambda item: item.name.lower()):
+    for destination in sorted(
+        config.destination_root.iterdir(), key=lambda item: item.name.lower()
+    ):
         if destination.name in source_names:
             continue
-        if destination.is_symlink() and points_inside_source(destination, config.source_root):
+        if destination.is_symlink() and points_inside_source(
+            destination, config.source_root
+        ):
             remove_link(destination, dry_run=config.dry_run)
 
 
@@ -212,6 +264,7 @@ def build_config(args: argparse.Namespace) -> SyncConfig:
         agent_root=agent_root,
         destination_root=destination_root,
         recursive=args.recursive,
+        skill_pattern=args.skill,
         remove_stale=not args.no_remove_stale,
         dry_run=args.dry_run,
     )
@@ -219,7 +272,13 @@ def build_config(args: argparse.Namespace) -> SyncConfig:
 
 def run(args: argparse.Namespace) -> int:
     config = build_config(args)
-    skills = discover_recursive_skills(config.source_root) if config.recursive else discover_direct_skills(config.source_root)
+    skills = (
+        discover_recursive_skills(config.source_root)
+        if config.recursive
+        else discover_direct_skills(config.source_root)
+    )
+    pattern = compile_skill_pattern(config.skill_pattern)
+    skills = [skill for skill in skills if pattern.search(skill.name)]
     validate_unique_names(skills)
 
     if not skills:
