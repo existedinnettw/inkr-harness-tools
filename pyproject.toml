@@ -7,12 +7,15 @@ authors = [
     { name = "insleker", email = "bkinnightskytw@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+]
 
 [project.scripts]
 inkr-harness-tools = "inkr_harness_tools:main"
 inkr-skill-sync = "inkr_harness_tools.skill_sync:main"
 inkr-skill-symlink = "inkr_harness_tools.skill_sync:main"
+inkr-release-install = "inkr_harness_tools.release_install:main"
 
 [build-system]
 requires = ["uv_build>=0.10.11,<0.11.0"]

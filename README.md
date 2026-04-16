@@ -9,6 +9,11 @@ Utility CLIs for inkr harness workflows.
 Symlink discovered skill directories from a source tree into `AGENT_ROOT/skills`.
 Filter linked skills by regex with `-s, --skill <skills>` (default: `"*"` for all skills).
 
+`inkr-release-install`
+
+Install a platform-matching GitHub release asset into a local bin directory.
+By default, the expected binary/asset prefix is inferred from the repo name.
+
 ## Usage
 
 ```sh
@@ -21,6 +26,10 @@ uv run inkr-skill-sync .local .agents --recursive --skill '^openai-.*'
 
 ```sh
 uvx --from git+https://github.com/existedinnettw/inkr-harness-tools.git inkr-skill-sync .local .agents --recursive
+```
+
+```sh
+uv run inkr-release-install --repo existedinnettw/code_work_spawner --version latest --dry-run
 ```
 
 ## Development
